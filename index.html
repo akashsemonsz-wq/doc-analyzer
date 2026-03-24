@@ -1,0 +1,233 @@
+const { useMemo, useState } = React;
+
+const seedDocuments = [
+  {
+    id: 1,
+    name: "123 Main St - Purchase Contract.pdf",
+    borrower: "Atlas Residential LLC",
+    deal: "123 Main St Flip",
+    category: "Contract",
+    uploadedAt: "2026-03-22 09:12",
+    status: "Looks Good",
+    confidence: 96,
+    pages: 18,
+    missing: [],
+    flags: ["Purchase price matches intake form", "Signed by buyer and seller"],
+    extracted: {
+      address: "123 Main St, Dallas, TX",
+      purchasePrice: "$428,000",
+      closingDate: "2026-04-14",
+      entityName: "Atlas Residential LLC",
+    },
+  },
+  {
+    id: 2,
+    name: "Borrower Financial Statement.docx",
+    borrower: "Atlas Residential LLC",
+    deal: "123 Main St Flip",
+    category: "Financials",
+    uploadedAt: "2026-03-22 09:16",
+    status: "Needs Review",
+    confidence: 74,
+    pages: 6,
+    missing: ["Liquidity schedule attachment", "Guarantor signature"],
+    flags: ["Net worth field found", "Liquidity support referenced but not attached"],
+    extracted: {
+      netWorth: "$3.4M",
+      liquidity: "$412,000",
+      guarantor: "A. Carter",
+      date: "2026-03-20",
+    },
+  },
+  {
+    id: 3,
+    name: "Scope of Work and Budget.xlsx",
+    borrower: "Atlas Residential LLC",
+    deal: "123 Main St Flip",
+    category: "Construction",
+    uploadedAt: "2026-03-22 09:21",
+    status: "Missing Items",
+    confidence: 81,
+    pages: 1,
+    missing: ["Contingency line item", "General contractor information", "Draw schedule"],
+    flags: ["Budget totals identified", "Rehab line items present"],
+    extracted: {
+      rehabBudget: "$87,500",
+      asIsValue: "$435,000",
+      arv: "$615,000",
+      term: "12 months",
+    },
+  },
+  {
+    id: 4,
+    name: "Driver License - Guarantor.pdf",
+    borrower: "Atlas Residential LLC",
+    deal: "123 Main St Flip",
+    category: "KYC",
+    uploadedAt: "2026-03-22 09:25",
+    status: "Looks Good",
+    confidence: 98,
+    pages: 2,
+    missing: [],
+    flags: ["ID present", "Expiration date valid"],
+    extracted: {
+      guarantor: "Andrew Carter",
+      expiration: "2028-11-09",
+      state: "Texas",
+    },
+  },
+  {
+    id: 5,
+    name: "Insurance Binder.pdf",
+    borrower: "Atlas Residential LLC",
+    deal: "123 Main St Flip",
+    category: "Insurance",
+    uploadedAt: "2026-03-22 09:28",
+    status: "Missing Items",
+    confidence: 78,
+    pages: 3,
+    missing: ["Mortgagee clause", "Builder's risk confirmation"],
+    flags: ["Named insured found", "Property address found"],
+    extracted: {
+      coverage: "$500,000",
+      insured: "Atlas Residential LLC",
+      address: "123 Main St, Dallas, TX",
+    },
+  },
+  {
+    id: 6,
+    name: "Title Commitment.pdf",
+    borrower: "Atlas Residential LLC",
+    deal: "123 Main St Flip",
+    category: "Title",
+    uploadedAt: "2026-03-22 09:31",
+    status: "Needs Review",
+    confidence: 69,
+    pages: 22,
+    missing: ["Schedule B exception review"],
+    flags: ["Ownership vesting found", "Legal description found", "Exception section detected"],
+    extracted: {
+      owner: "Seller Holdings TX LLC",
+      county: "Dallas",
+      effectiveDate: "2026-03-18",
+    },
+  },
+];
+
+const checklistTemplates = {
+  RTL: [
+    "Purchase contract",
+    "Borrower financial statement",
+    "Scope of work + rehab budget",
+    "Entity documents",
+    "Driver license / KYC",
+    "Insurance binder",
+    "Title commitment",
+    "Appraisal or valuation",
+    "Bank statements",
+    "Draw schedule",
+  ],
+  Refinance: [
+    "Current note + payoff",
+    "Insurance binder",
+    "Operating agreement",
+    "Rent roll / income support",
+    "Borrower financial statement",
+    "Title commitment",
+    "Bank statements",
+  ],
+};
+
+const statusStyles = {
+  "Looks Good": "bg-emerald-500/15 text-emerald-300 border-emerald-500/20",
+  "Needs Review": "bg-amber-500/15 text-amber-300 border-amber-500/20",
+  "Missing Items": "bg-rose-500/15 text-rose-300 border-rose-500/20",
+};
+
+function cx(...parts) {
+  return parts.filter(Boolean).join(" ");
+}
+
+function IconShell({ children }) {
+  return <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/5 ring-1 ring-white/10">{children}</div>;
+}
+
+function Glyph({ symbol, className = "" }) {
+  return <span className={cx("text-sm font-bold leading-none", className)}>{symbol}</span>;
+}
+
+function Badge({ children, className = "" }) {
+  return <span className={cx("rounded-full border px-3 py-1 text-xs font-medium", className)}>{children}</span>;
+}
+
+function StatCard({ symbol, label, value, sub }) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/20">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm text-slate-400">{label}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{value}</div>
+          <div className="mt-2 text-sm text-slate-500">{sub}</div>
+        </div>
+        <IconShell>
+          <Glyph symbol={symbol} className="text-cyan-300" />
+        </IconShell>
+      </div>
+    </div>
+  );
+}
+
+function getChecklistPresence(templateItem, documents) {
+  const normalized = templateItem.toLowerCase();
+
+  const keywordMap = {
+    "purchase contract": ["purchase contract", "contract"],
+    "borrower financial statement": ["borrower financial statement", "financial statement", "financials"],
+    "scope of work + rehab budget": ["scope of work", "budget", "construction", "rehab"],
+    "entity documents": ["entity", "operating agreement", "articles", "formation"],
+    "driver license / kyc": ["driver license", "license", "kyc", "id"],
+    "insurance binder": ["insurance binder", "insurance"],
+    "title commitment": ["title commitment", "title"],
+    "appraisal or valuation": ["appraisal", "valuation", "bpo"],
+    "bank statements": ["bank statement", "bank statements"],
+    "draw schedule": ["draw schedule", "draw"],
+    "current note + payoff": ["note", "payoff"],
+    "operating agreement": ["operating agreement"],
+    "rent roll / income support": ["rent roll", "income support"],
+  };
+
+  const keywords = keywordMap[normalized] || [normalized];
+  return documents.some((doc) => {
+    const haystack = `${doc.name} ${doc.category}`.toLowerCase();
+    return keywords.some((keyword) => haystack.includes(keyword));
+  });
+}
+
+function runSelfTests(documents) {
+  const checks = [];
+
+  const rtlChecklist = checklistTemplates.RTL.map((item) => ({
+    item,
+    found: getChecklistPresence(item, documents),
+  }));
+
+  checks.push({
+    name: "RTL checklist finds purchase contract",
+    pass: rtlChecklist.some((item) => item.item === "Purchase contract" && item.found),
+  });
+
+  checks.push({
+    name: "RTL checklist finds borrower financial statement",
+    pass: rtlChecklist.some((item) => item.item === "Borrower financial statement" && item.found),
+  });
+
+  checks.push({
+    name: "RTL checklist marks appraisal or valuation as missing in seed data",
+    pass: rtlChecklist.some((item) => item.item === "Appraisal or valuation" && !item.found),
+  });
+
+  checks.push({
+    name: "Summary status counts equal total documents",
+    pass:
+      documents.filter((d) => d.status === "Looks Good").length +
+        documents.filter((d) => d.status === "Needs Review").length
